@@ -1,0 +1,16 @@
+# Ignore sensitive configuration files
+CameraWebServer/config.h
+
+# Ignore build artifacts and temporary files
+*.tmp
+*.log
+build/
+.vscode/settings.json  # If it contains secrets
+
+# Python cache
+__pycache__/
+*.pyc
+
+# ESP32 build files
+.pio/
+.vscode/c_cpp_properties.json  # May contain paths
