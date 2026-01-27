@@ -16,3 +16,7 @@ venv/
 # ESP32 build files
 .pio/
 .vscode/c_cpp_properties.json  # May contain paths
+
+# Debug images
+debug_images/detected/
+debug_images/not_detected/
