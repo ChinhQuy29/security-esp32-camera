@@ -2,9 +2,10 @@ import time
 import cv2
 import numpy as np
 import redis
-from fastapi import FastAPI, UploadFile, File, Body
+from fastapi import FastAPI, UploadFile, File, Body, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from ultralytics import YOLO
+import asyncio
 
 # App and ML Setup
 app = FastAPI(title="TinyML Smart Server")
@@ -56,7 +57,7 @@ async def upload_image(file: bytes = Body(...)):
         # Save image for debug purposes
         timestamp = int(time.time())
         debug_filename = f"debug_{timestamp}.jpg"
-        cv2.imwrite(f'detected/{debug_filename}', img)
+        cv2.imwrite(f'./debug_images/detected/{debug_filename}', img)
 
         event_data = {
             "event": "person_detected",
@@ -64,11 +65,13 @@ async def upload_image(file: bytes = Body(...)):
             "model": "yolov8n",
         }
         r.xadd("tinyml:stream", event_data)
+        r.publish("detection_alerts", "PERSON_DETECTED")
+
         return {"status": "success", "person_count": person_count}
 
     timestamp = int(time.time())
     debug_filename = f"debug_{timestamp}.jpg"
-    cv2.imwrite(f'not_detected/{debug_filename}', img)
+    cv2.imwrite(f'./debug_images/not_detected/{debug_filename}', img)
     return {"status": "success", "person_count": 0}
 
 def format_stream_entry(entry):
@@ -92,3 +95,24 @@ def get_events():
     except redis.exceptions.ResponseError as e:
         print(f"Redis error: {e}")
         return []
+    
+@app.websocket("/ws/alerts")
+async def alert_websocket(websocket: WebSocket):
+    await websocket.accept()
+
+    # Subscribe to Redis channel
+    pubsub = r.pubsub()
+    pubsub.subscribe("detection_alerts")
+
+    try:
+        while True:
+            message = pubsub.get_message()
+            if message and message['type'] == 'message':
+                alert = message['data']
+                await websocket.send_text(alert)
+            await asyncio.sleep(0.1)
+    except WebSocketDisconnect:
+        print("WebSocket disconnected")
+    finally:
+        pubsub.unsubscribe("detection_alerts")
+        pubsub.close()
