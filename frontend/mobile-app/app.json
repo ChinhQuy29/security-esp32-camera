@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "mobile-app",
+    "slug": "mobile-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "com.jason.securityesp32",
+      "googleServicesFile": "./google-services.json"
+    },
+    "plugins": ["@react-native-firebase/app", "expo-notifications"],
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}
