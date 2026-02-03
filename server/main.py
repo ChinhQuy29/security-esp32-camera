@@ -6,6 +6,9 @@ from fastapi import FastAPI, UploadFile, File, Body, WebSocket, WebSocketDisconn
 from fastapi.middleware.cors import CORSMiddleware
 from ultralytics import YOLO
 import asyncio
+import base64
+import json
+from firebase_admin import messaging, credentials, initialize_app
 
 # App and ML Setup
 app = FastAPI(title="TinyML Smart Server")
@@ -19,7 +22,7 @@ print("YOLOv8 model loaded.")
 try:
     r = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
     r.ping()
-    print("Connected to Redis")
+    print("Connected to Redis") 
 except Exception as e:
     print(f"Redis connection error: {e}")
 
@@ -57,21 +60,40 @@ async def upload_image(file: bytes = Body(...)):
         # Save image for debug purposes
         timestamp = int(time.time())
         debug_filename = f"debug_{timestamp}.jpg"
-        cv2.imwrite(f'./debug_images/detected/{debug_filename}', img)
+        # cv2.imwrite(f'../debug_images/detected/{debug_filename}', img)
+
+        # Encode image as base64
+        _, buffer = cv2.imencode('.jpg', img)
+        img_base64 = base64.b64encode(buffer).decode('utf-8')
 
         event_data = {
             "event": "person_detected",
             "count": person_count,
             "model": "yolov8n",
+            "image": img_base64
         }
         r.xadd("tinyml:stream", event_data)
-        r.publish("detection_alerts", "PERSON_DETECTED")
+        r.publish("detection_alerts", json.dumps({"event": "person_detected", "count": person_count, "timestamp": timestamp, "image": img_base64}))
+
+        # Send push notification to subscribed devices
+        message = messaging.Message(
+            notification=messaging.Notification(
+                title="Security Alert",
+                body=f"{person_count} person(s) detected at {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(timestamp))}",
+            ),
+            topic="security_alerts"
+        )
+
+        try:
+            messaging.send(message)
+        except Exception as e:
+            print(f"Error sending push notification: {e}")
 
         return {"status": "success", "person_count": person_count}
 
     timestamp = int(time.time())
     debug_filename = f"debug_{timestamp}.jpg"
-    cv2.imwrite(f'./debug_images/not_detected/{debug_filename}', img)
+    # cv2.imwrite(f'../debug_images/not_detected/{debug_filename}', img)
     return {"status": "success", "person_count": 0}
 
 def format_stream_entry(entry):
@@ -84,6 +106,7 @@ def format_stream_entry(entry):
         "id": entry_id,
         "event": data.get("event", "unknown"),
         "timestamp": readable_time,
+        "image": data.get("image", None),
     }
 
 @app.get("/api/events")
@@ -110,9 +133,22 @@ async def alert_websocket(websocket: WebSocket):
             if message and message['type'] == 'message':
                 alert = message['data']
                 await websocket.send_text(alert)
-            await asyncio.sleep(0.1)
+                await asyncio.sleep(0.01)  # Yield control to event loop
+            else:
+                await asyncio.sleep(0.1)  # Avoid busy waiting
+
     except WebSocketDisconnect:
         print("WebSocket disconnected")
     finally:
         pubsub.unsubscribe("detection_alerts")
         pubsub.close()
+
+@app.post("/api/register-token")
+async def register_token(token: str = Body(..., embed=True)):
+    try:
+        response = messaging.subscribe_to_topic([token], "security_alerts")
+        print(f"Subcribed token to topic: {response.success_count} success")
+        return {"status": "subscribed"}
+    except Exception as e:
+        print(f"Error subscribing token: {e}")
+        return {"status": "error", "message": str(e)}
